@@ -12,10 +12,10 @@ defmodule Torex.Process do
   def init(args) do
     port = Port.open({:spawn_executable, System.find_executable("tor")},
                      [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
-                     args: ['__OwningControllerProcess',
+                     args: ["__OwningControllerProcess",
                             :erlang.list_to_binary(:os.getpid())] ++ flatten_args_map(args)])
 
-    # Links the port to the current and managing process
+    # Links the port to the current process
     true = Port.connect(port, self())
 
     # Read from stdin to determine startup success
@@ -33,8 +33,18 @@ defmodule Torex.Process do
     {:noreply, port}
   end
 
+  def handle_info({_port, {:exit_status, code}}, port) do
+    Logger.error fn ->
+      "Tor exited with status: #{code}"
+    end
+    {:stop, :exit, port}
+  end
+
   def terminate(_reason, port) do
-    Port.close(port)
+    case Port.info(port) do
+      nil -> true
+      _info -> Port.close(port)
+    end
   end
 
   defp flatten_args_map(%{} = map) do

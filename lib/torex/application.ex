@@ -5,7 +5,7 @@ defmodule Torex.Application do
 
   def start(_type, _args) do
     children = [
-      Torex.ProcessSupervisor
+      Torex.Process.Supervisor
     ]
 
     opts = [strategy: :one_for_one, name: Torex.Supervisor]

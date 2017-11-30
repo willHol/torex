@@ -1,4 +1,4 @@
-defmodule Torex.ProcessSupervisor do
+defmodule Torex.Process.Supervisor do
   use Supervisor
 
   def start_link(_) do
