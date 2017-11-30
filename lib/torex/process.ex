@@ -20,11 +20,8 @@ defmodule Torex.Process do
 
     # Read from stdin to determine startup success
     case handle_bootstrap(port) do
-      :ok ->
-        {:ok, port}
-      :error ->
-        terminate(:bootstrap_failed, port)
-        {:stop, :bootstrap_failed}
+      :ok -> {:ok, port}
+      :error -> {:stop, :bootstrap_failed}
     end
   end
 
@@ -104,6 +101,8 @@ defmodule Torex.Process do
           true ->
             handle_bootstrap(port)
         end
+      {^port, {:exit_status, code}} ->
+        :error
     end
   end
 end
