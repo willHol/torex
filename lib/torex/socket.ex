@@ -37,6 +37,12 @@ defmodule Torex.Socket do
     end
   end
 
+  def unformat_msg(msg) do
+    msg
+    |> String.replace_suffix("\r\n.\r\n", "")
+    |> String.replace("\r\n", "\n")
+  end
+
   def handle_call(:socket, _from, socket), do: {:reply, socket, socket}
 
   def handle_call({:send, packet}, _from, socket) do
@@ -51,7 +57,7 @@ defmodule Torex.Socket do
   def handle_call({:recv, bytes}, _from, socket) do
     case :gen_tcp.recv(socket, bytes) do
       {:ok, data} ->
-        {:reply, data, socket}
+        {:reply, unformat_msg(data), socket}
       {:error, reason} ->
         {:stop, reason, socket}
     end
