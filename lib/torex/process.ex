@@ -6,7 +6,7 @@ defmodule Torex.Process do
   @logger_regex ~r(\w{3} \w{2} \w{2}:\w{2}:\w{2}.\w{3} \[\w+\] )
 
   def start_link(%{} = args) do
-    GenServer.start_link(__MODULE__, args, [])
+    GenServer.start_link(__MODULE__, args)
   end
 
   def init(args) do

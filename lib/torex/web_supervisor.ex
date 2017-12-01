@@ -1,4 +1,4 @@
-defmodule Torex.Process.Supervisor do
+defmodule Torex.Web.Supervisor do
   use Supervisor
 
   def start_link(_) do
@@ -10,8 +10,9 @@ defmodule Torex.Process.Supervisor do
     tor_args = Application.get_env(:torex, :args, %{}) |> transform_args()
 
     Supervisor.init([
-      {Torex.Process, tor_args}
-    ], strategy: :one_for_one, max_restarts: 500, max_seconds: 120)
+      {Torex.Process, tor_args},
+      Torex.Socket
+    ], strategy: :one_for_all, shutdown: 1500)
   end
 
   defp transform_args(args) do
