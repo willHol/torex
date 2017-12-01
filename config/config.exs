@@ -2,7 +2,7 @@ use Mix.Config
 
 config :torex,
   args: %{
-    ControlPort: 9051
+    ControlPort: 4000
   }
 
 config :logger, :console,

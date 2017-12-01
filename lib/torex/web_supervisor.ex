@@ -12,7 +12,7 @@ defmodule Torex.Web.Supervisor do
     Supervisor.init([
       {Torex.Process, tor_args},
       Torex.Socket
-    ], strategy: :one_for_all, shutdown: 1500)
+    ], strategy: :one_for_all, shutdown: 1500, max_restarts: 3, max_seconds: 90)
   end
 
   defp transform_args(args) do
