@@ -22,7 +22,7 @@ defmodule Torex.Socket do
 
   def handle_info({:tcp_error, _socket, reason}, socket) do
     Logger.error fn ->
-      "Socket error #{inspect reason}"
+      "Socket error #{inspect reason}: #{inspect socket}"
     end
     {:stop, socket}
   end
@@ -33,7 +33,7 @@ defmodule Torex.Socket do
 
   def terminate(_reason, socket) do
     Logger.error fn ->
-      "Socket closed"
+      "Socket closed: #{inspect socket}"
     end
     :gen_tcp.close(socket)
   end
