@@ -1,4 +1,4 @@
-defmodule Torex.Process do
+defmodule Torex.Controller.Process do
   use GenServer
 
   require Logger
@@ -6,10 +6,12 @@ defmodule Torex.Process do
   @logger_regex ~r(\w{3} \w{2} \w{2}:\w{2}:\w{2}.\w{3} \[\w+\] )
 
   def start_link(%{} = args) do
-    GenServer.start_link(__MODULE__, args)
+    GenServer.start_link(__MODULE__, args, name: __MODULE__)
   end
 
   def init(args) do
+    Process.flag(:trap_exit, true)
+
     port = Port.open({:spawn_executable, System.find_executable("tor")},
                      [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
                      args: ["__OwningControllerProcess",
@@ -34,14 +36,28 @@ defmodule Torex.Process do
     Logger.error fn ->
       "Tor exited with status: #{code}"
     end
-    {:stop, :exit, port}
+    {:stop, :tor_exit, port}
+  end
+
+  # Trapped exit handler
+  def handle_info({:EXIT, _from, _reason}, state) do
+    {:stop, :exit, state}
   end
 
   def terminate(_reason, port) do
     case Port.info(port) do
       nil -> true
-      _info -> Port.close(port)
+      info -> kill_port(port, info)
     end
+  end
+
+  defp kill_port(port, info) do
+    os_pid = Keyword.get(info, :os_pid)
+
+    Port.close(port)
+    :os.cmd('kill #{os_pid}')
+    
+    :ok
   end
 
   defp flatten_args_map(%{} = map) do
@@ -96,7 +112,7 @@ defmodule Torex.Process do
             :ok
           line =~ "Bootstrapped" ->
             handle_bootstrap(port)
-          line =~ "[warn]" || line =~ "[err]" ->
+          line =~ "[warn] Could not bind" || line =~ "[err]" ->
             :error
           true ->
             handle_bootstrap(port)

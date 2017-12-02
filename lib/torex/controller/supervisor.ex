@@ -1,5 +1,7 @@
-defmodule Torex.Web.Supervisor do
+defmodule Torex.Controller.Supervisor do
   use Supervisor
+
+  alias Torex.Controller.{Process, Socket}
 
   def start_link(_) do
     Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -9,10 +11,13 @@ defmodule Torex.Web.Supervisor do
     # System env variables take precedence over application variables
     tor_args = Application.get_env(:torex, :args, %{}) |> transform_args()
 
-    Supervisor.init([
-      {Torex.Process, tor_args},
-      Torex.Socket
-    ], strategy: :one_for_all, shutdown: 1500, max_restarts: 3, max_seconds: 90)
+    children = [
+      {Process, tor_args},
+      Socket
+    ]
+
+    Supervisor.init(children, strategy: :one_for_one, shutdown: 1500,
+                                              max_restarts: 3, max_seconds: 90)
   end
 
   defp transform_args(args) do

@@ -5,7 +5,7 @@ defmodule Torex.Application do
 
   def start(_type, _args) do
     children = [
-      Torex.Web.Supervisor,
+      Torex.Controller,
       {Task.Supervisor, name: Torex.TaskSupervisor, restart: :temporary}
     ]
 
