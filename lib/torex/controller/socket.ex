@@ -36,6 +36,11 @@ defmodule Torex.Controller.Socket do
     GenServer.call(__MODULE__, :active)
   end
 
+  def send_and_recv(msg, timeout \\ 500) do
+    send_and_wait(msg, timeout)
+    recv_all()
+  end
+
   def recv() do
     GenServer.call(__MODULE__, :recv)
   end

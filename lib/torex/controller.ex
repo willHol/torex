@@ -17,6 +17,8 @@ defmodule Torex.Controller do
   alias Torex.Controller.{Process, Socket, ProtocolError, AuthenticationError}
 
   @version 1
+  @client_auth_key "Tor safe cookie authentication controller-to-server hash"
+  @server_auth_key "Tor safe cookie authentication server-to-controller hash"
 
   # A map of reply codes
   @status_codes %{
@@ -40,13 +42,14 @@ defmodule Torex.Controller do
     end
 
     {:ok, []}
+  rescue
+    e in [AuthenticationError, ProtocolError] -> {:stop, e}
   end
 
   @spec protocol_info() :: %{status: atom(), auth_methods: [String.t()],
                                                             version: String.t()}
   def protocol_info() do
-    Socket.send_and_wait("PROTOCOLINFO #{@version}")
-    lines = Socket.recv_all()
+    lines = Socket.send_and_recv("PROTOCOLINFO #{@version}")
 
     unless status(lines) === :success do
       raise ProtocolError, message: "Incorrect status code"
@@ -74,8 +77,27 @@ defmodule Torex.Controller do
           ~s(authenticate)
         "HASHEDPASSWORD" in methods and password != nil ->
           ~s(authenticate "#{password}")
-        "SAFECOOKIE" in methods and false ->
-          nil
+        "SAFECOOKIE" in methods ->
+          case File.read(cookie_path) do
+            {:ok, bin} ->
+              <<nonce::8>> = :crypto.strong_rand_bytes(1)
+              %{server_nonce: server_nonce, server_hash: server_hash} = auth_challenge(nonce)
+
+              computed_server_hash = :crypto.hmac(:sha256, @server_auth_key,
+                            bin <> <<nonce::8>> <> Base.decode16!(server_nonce))
+
+              unless Base.encode16(computed_server_hash) === server_hash do
+                # This indicates that the server does not have access to the cookie
+                raise AuthenticationError, message: "Server provided an invalid hash"
+              end
+              
+              client_hash = :crypto.hmac(:sha256, @client_auth_key,
+                            bin <> <<nonce::8>> <> Base.decode16!(server_nonce))
+
+              ~s(authenticate "#{client_hash}")
+            {:error, reason} ->
+              raise AuthenticationError, message: "Failed to read cookie file: #{inspect reason}"
+          end
         "COOKIE" in methods and cookie_path != nil ->
           case File.read(cookie_path) do
             {:ok, bin} ->
@@ -87,8 +109,7 @@ defmodule Torex.Controller do
           raise AuthenticationError, message: "Unrecognised authentication method"
       end
 
-      Socket.send_and_wait(msg)
-      lines = Socket.recv_all()
+      lines = Socket.send_and_recv(msg)
 
       case status(lines) do
         :success -> :ok
@@ -96,7 +117,7 @@ defmodule Torex.Controller do
       end
   end
 
-  @spec auth_challenge(integer()) :: %{server_hash: String.t(), server_nonce: String.t()}
+  @spec auth_challenge(integer() | String.t()) :: %{server_hash: String.t(), server_nonce: String.t()}
   def auth_challenge(nonce) do
     if String.valid?(nonce) do
       Socket.send_and_wait(~s(AUTHCHALLENGE SAFECOOKIE "#{nonce}"))
