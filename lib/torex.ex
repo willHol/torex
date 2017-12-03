@@ -21,7 +21,10 @@ defmodule Torex do
   @status_codes %{
     "250 OK" => :success,
     "515 Bad authentication" => :bad_auth,
-    "514 Authentication required." => :auth_required
+    "514 Authentication required" => :auth_required,
+    "552 Unrecognized option" => :unrecognized_opt,
+    "513 syntax error in configuration values" => :syntax_error,
+    "553 impossible configuration setting" => :impossible_config
   }
 
   @spec protocol_info() :: %{status: atom(), auth_methods: [String.t()],
@@ -47,8 +50,10 @@ defmodule Torex do
   @doc """
   Authenticates a control connection. Picks from all methods of authentication.
   Order of precedence is SAFECOOKIE, HASHEDPASSWORD, COOKIE and NULL, in
-  decreasing order.
+  decreasing order.  All authentication functions raise exceptions if a
+  failure occurs.
   """
+  @spec authenticate() :: {:ok, String.t()}
   def authenticate() do
     %{auth_methods: methods} = protocol_info()
     password = Application.get_env(:torex, :password)
@@ -75,11 +80,63 @@ defmodule Torex do
         :success -> {:ok, method}
         :bad_auth -> raise AuthenticationError, message: "Authentication failed"
         :auth_required -> authenticate()
-        nil -> raise AuthenticationError, message: "Invalid response status: #{status(lines)}"
+        _ -> raise AuthenticationError, message: "Invalid response status: #{status(lines)}"
       end
   end
 
-  defp authenticate_safecookie(cookie_path) do
+  @doc """
+  Begins the authentication routine for SAFECOOKIE. All authentication functions
+  raise exceptions if a failure occurs.
+  """
+  @spec auth_challenge(integer() | String.t()) :: %{server_hash: String.t(), server_nonce: String.t()}
+  def auth_challenge(nonce) do
+    if String.valid?(nonce) do
+      Socket.send_and_wait(~s(AUTHCHALLENGE SAFECOOKIE "#{nonce}"))
+    else
+      Socket.send_and_wait(~s(AUTHCHALLENGE SAFECOOKIE #{dec_to_hex(nonce, 2)}))
+    end
+
+    [line] = Socket.recv_all()
+    ["250", "AUTHCHALLENGE" | keys] = String.split(line, " ")
+    map = decompose_kv_info(keys)
+
+    [server_hash] = map["SERVERHASH"]
+    [server_nonce] = map["SERVERNONCE"]
+
+    %{
+      server_hash: server_hash,
+      server_nonce: server_nonce
+    }
+  end
+
+  @spec set_conf([{atom(), any()} | atom()]) :: :ok | {:error, atom()}
+  def set_conf(keywords) do
+    mapper = fn val ->
+      case val do
+        {k, v} -> ~s( #{k}="#{v}")
+        val -> ~s( #{val})
+      end
+    end
+
+    kv_string =
+      keywords
+      |> Enum.map(mapper)
+      |> Enum.join()
+
+    msg = "SETCONF" <> kv_string
+    lines = Socket.send_and_recv(msg)
+
+    case status(lines) do
+      :success -> :ok
+      status -> {:error, status}
+    end
+  end
+
+  # ========================================= #
+  #             Private Functions             #
+  # ========================================= #
+
+    defp authenticate_safecookie(cookie_path) do
     case File.read(cookie_path) do
       {:ok, bin} ->
         <<nonce::32>> = :crypto.strong_rand_bytes(4)
@@ -122,35 +179,6 @@ defmodule Torex do
   defp authenticate_null() do
     ~s(authenticate)
   end
-
-  @doc """
-  Begins the authentication routine for SAFECOOKIE.
-  """
-  @spec auth_challenge(integer() | String.t()) :: %{server_hash: String.t(), server_nonce: String.t()}
-  def auth_challenge(nonce) do
-    if String.valid?(nonce) do
-      Socket.send_and_wait(~s(AUTHCHALLENGE SAFECOOKIE "#{nonce}"))
-    else
-      Socket.send_and_wait(~s(AUTHCHALLENGE SAFECOOKIE #{dec_to_hex(nonce, 2)}))
-    end
-
-    [line] = Socket.recv_all()
-    ["250", "AUTHCHALLENGE" | keys] = String.split(line, " ")
-    map = decompose_kv_info(keys)
-
-    [server_hash] = map["SERVERHASH"]
-    [server_nonce] = map["SERVERNONCE"]
-
-    %{
-      server_hash: server_hash,
-      server_nonce: server_nonce
-    }
-  end
-
-
-  # ========================================= #
-  #             Private Functions             #
-  # ========================================= #
 
   def trim_bytes(<<0, rest::binary>>) do
     trim_bytes(rest)
