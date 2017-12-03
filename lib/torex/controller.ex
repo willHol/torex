@@ -80,8 +80,8 @@ defmodule Torex.Controller do
           case File.read(cookie_path) do
             {:ok, bin} ->
               ~s(authenticate "#{bin}")
-            {:error, _} ->
-              raise AuthenticationError, message: "Failed to read cookie file"
+            {:error, reason} ->
+              raise AuthenticationError, message: "Failed to read cookie file: #{inspect reason}"
           end
         true ->
           raise AuthenticationError, message: "Unrecognised authentication method"
@@ -117,6 +117,11 @@ defmodule Torex.Controller do
     }
   end
 
+
+  # ========================================= #
+  #             Private Functions             #
+  # ========================================= #
+
   defp dec_to_hex(int, out_len) do
     hex = "#{:erlang.integer_to_list(int, 16)}"
     
@@ -126,11 +131,6 @@ defmodule Torex.Controller do
       String.pad_leading(hex, out_len - String.length(hex) + 1, "0")
     end
   end
-
-
-  # ========================================= #
-  #             Private Functions             #
-  # ========================================= #
 
   defp status(lines) do 
     [code] = Enum.take(lines, -1)
