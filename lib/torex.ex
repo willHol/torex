@@ -23,6 +23,7 @@ defmodule Torex do
     "515 Bad authentication" => :bad_auth,
     "514 Authentication required" => :auth_required,
     "552 Unrecognized option" => :unrecognized_opt,
+    "552 unknown configuration keyword" => :unrecognized_keyword,
     "513 syntax error in configuration values" => :syntax_error,
     "553 impossible configuration setting" => :impossible_config
   }
@@ -109,7 +110,11 @@ defmodule Torex do
     }
   end
 
-  @spec set_conf([{atom(), any()} | atom()]) :: :ok | {:error, atom()}
+  @doc """
+  Changes the value of one or more configuration variables.
+  """
+  @spec set_conf([{atom() | String.t(), any()} | atom() | String.t()]) ::
+                                                        :ok | {:error, atom()}
   def set_conf(keywords) do
     mapper = fn val ->
       case val do
@@ -126,9 +131,81 @@ defmodule Torex do
     msg = "SETCONF" <> kv_string
     lines = Socket.send_and_recv(msg)
 
-    case status(lines) do
-      :success -> :ok
-      status -> {:error, status}
+    if success?(lines) do
+      :ok
+    else
+      {:error, status(lines)}
+    end
+  end
+
+  @doc """
+  Removes all settings for a given configuration option, assign the default
+  value, then assign the provided string. This is defined in the spec as a plain
+  unquoted string, so as such it must be free of spaces.
+  """
+  @spec reset_conf([{atom() | String.t(), any()} | atom() | String.t()]) ::
+                                                        :ok | {:error, atom()}
+  def reset_conf(keywords) do
+    mapper = fn val ->
+      case val do
+        {k, v} -> ~s( #{k}=#{v})
+        val -> ~s( #{val})
+      end
+    end
+
+    kv_string =
+      keywords
+      |> Enum.map(mapper)
+      |> Enum.join()
+
+    msg = "RESETCONF" <> kv_string
+    lines = Socket.send_and_recv(msg)
+
+    if success?(lines) do
+      :ok
+    else
+      {:error, status(lines)}
+    end
+  end
+
+  @doc """
+  Requests the value of the configuration variable(s). There is a special case
+  for HiddenServiceDir, HiddenServicePort, HiddenServiceVersion, and
+  HiddenserviceAuthorizeClient options which require the inclusion of the
+  HiddenServiceOptions keyword. Value is the atom :default in the case of 
+  defaults.
+  """
+  @spec get_conf([atom() | String.t()]) ::
+            {:ok, %{required(atom()) => String.t()}} | {:error, any()}
+  def get_conf(keywords) do
+    keywords_str =
+      keywords
+      |> Enum.map(&(" #{&1}"))
+      |> Enum.join()
+    
+    msg = "GETCONF" <> keywords_str
+    lines = Socket.send_and_recv(msg)
+
+    if success?(lines) do
+      result = Enum.reduce(lines, %{}, fn line, map ->
+        kv =
+          case line do
+            "250 " <> kv -> kv
+            "250-" <> kv -> kv
+          end
+        
+        cond do
+          kv =~ ~r(\w+=[\w+,"\w"]) ->
+            [k, v] = String.split(kv, "=")
+            Map.put(map, String.to_atom(k), v)
+          true ->
+            Map.put(map, String.to_atom(kv), :default)
+        end
+      end)
+
+      {:ok, result}
+    else
+      {:error, status(lines)}
     end
   end
 
@@ -136,7 +213,7 @@ defmodule Torex do
   #             Private Functions             #
   # ========================================= #
 
-    defp authenticate_safecookie(cookie_path) do
+  defp authenticate_safecookie(cookie_path) do
     case File.read(cookie_path) do
       {:ok, bin} ->
         <<nonce::32>> = :crypto.strong_rand_bytes(4)
@@ -190,7 +267,16 @@ defmodule Torex do
   end
 
   defp status(lines) do 
-    @status_codes[get_code(lines)]
+    @status_codes[get_code(lines)] || Enum.take(lines, -1)
+  end
+
+  defp success?(lines) do
+    case Enum.take(lines, -1) do
+      [line] ->
+        line =~ ~r(^250)
+      _ ->
+        false
+    end
   end
 
   defp get_code(lines) do
