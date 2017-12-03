@@ -31,14 +31,17 @@ defmodule Torex.Controller do
   end
 
   def init(:ok) do
+    # Shows up in the logs as tor_log=false
+    Logger.metadata(tor_log: false)
+
     # Supervise the process and socket
     Torex.Controller.Supervisor.start_link([])
 
     # Authenticate the socket
-    :ok = authenticate()
+    {:ok, method} = authenticate()
 
     Logger.info fn  ->
-      "Control connection successfully authenticated"
+      "Control connection successfully authenticated via #{method} method"
     end
 
     {:ok, []}
@@ -76,50 +79,67 @@ defmodule Torex.Controller do
     password = Application.get_env(:torex, :password)
     cookie_path = Application.get_env(:torex, :cookie_path)
 
-    msg =
+    {msg, method} =
       cond do
         "SAFECOOKIE" in methods ->
-          case File.read(cookie_path) do
-            {:ok, bin} ->
-              <<nonce::8>> = :crypto.strong_rand_bytes(1)
-              %{server_nonce: server_nonce, server_hash: server_hash} = auth_challenge(nonce)
-
-              computed_server_hash = :crypto.hmac(:sha256, @server_auth_key,
-                            bin <> <<nonce::8>> <> Base.decode16!(server_nonce))
-
-              unless Base.encode16(computed_server_hash) === server_hash do
-                # This indicates that the server does not have access to the same cookie
-                raise AuthenticationError, message: "Server provided an invalid hash"
-              end
-              
-              client_hash = :crypto.hmac(:sha256, @client_auth_key,
-                            bin <> <<nonce::8>> <> Base.decode16!(server_nonce))
-
-              ~s(authenticate "#{client_hash}")
-            {:error, reason} ->
-              raise AuthenticationError, message: "Failed to read cookie file: #{inspect reason}"
-          end
+          {authenticate_safecookie(cookie_path), "SAFECOOKIE"}
         "HASHEDPASSWORD" in methods and password != nil ->
-          ~s(authenticate "#{password}")
+          {authenticate_hashed_password(password), "HASHEDPASSWORD"}
         "COOKIE" in methods and cookie_path != nil ->
-          case File.read(cookie_path) do
-            {:ok, bin} ->
-              ~s(authenticate "#{bin}")
-            {:error, reason} ->
-              raise AuthenticationError, message: "Failed to read cookie file: #{inspect reason}"
-          end
+          {authenticate_cookie(cookie_path), "COOKIE"}
         "NULL" in methods ->
-          ~s(authenticate)
+          {authenticate_null(), "NULL"}
         true ->
           raise AuthenticationError, message: "Unrecognised authentication method"
       end
 
-      lines = Socket.send_and_recv(msg)
+      # Default timeout is not long enough
+      lines = Socket.send_and_recv(msg, 5000)
 
       case status(lines) do
-        :success -> :ok
+        :success -> {:ok, method}
         :bad_auth -> raise AuthenticationError, message: "Authentication failed"
       end
+  end
+
+  defp authenticate_safecookie(cookie_path) do
+    case File.read(cookie_path) do
+      {:ok, bin} ->
+        <<nonce::8>> = :crypto.strong_rand_bytes(1)
+        %{server_nonce: server_nonce, server_hash: server_hash} = auth_challenge(nonce)
+
+        computed_server_hash = :crypto.hmac(:sha256, @server_auth_key,
+                      bin <> <<nonce::8>> <> Base.decode16!(server_nonce))
+
+        unless Base.encode16(computed_server_hash) === server_hash do
+          # This indicates that the server does not have access to the same cookie
+          raise AuthenticationError, message: "Server provided an invalid hash"
+        end
+        
+        client_hash = :crypto.hmac(:sha256, @client_auth_key,
+                      bin <> <<nonce::8>> <> Base.decode16!(server_nonce))
+
+        ~s(authenticate "#{client_hash}")
+      {:error, reason} ->
+        raise AuthenticationError, message: "Failed to read cookie file: #{inspect reason}"
+    end
+  end
+
+  defp authenticate_cookie(cookie_path) do
+    case File.read(cookie_path) do
+      {:ok, bin} ->
+        ~s(authenticate "#{bin}")
+      {:error, reason} ->
+        raise AuthenticationError, message: "Failed to read cookie file: #{inspect reason}"
+    end
+  end
+
+  defp authenticate_hashed_password(password) do
+    ~s(authenticate "#{password}")
+  end
+
+  defp authenticate_null() do
+    ~s(authenticate)
   end
 
   @doc """

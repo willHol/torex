@@ -15,6 +15,10 @@ defmodule Torex.Controller.Socket do
 
   def init(queue) do
     Process.flag(:trap_exit, true)
+
+    # Shows up in the logs as tor_log=false
+    Logger.metadata(tor_log: false)
+
     %{ControlPort: port} = Application.get_env(:torex, :args)
 
     {:ok, socket} = :gen_tcp.connect('localhost', port,
@@ -36,7 +40,7 @@ defmodule Torex.Controller.Socket do
     GenServer.call(__MODULE__, :active)
   end
 
-  def send_and_recv(msg, timeout \\ 500) do
+  def send_and_recv(msg, timeout \\ 750) do
     send_and_wait(msg, timeout)
     recv_all()
   end

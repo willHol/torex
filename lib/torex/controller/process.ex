@@ -12,6 +12,9 @@ defmodule Torex.Controller.Process do
   def init(args) do
     Process.flag(:trap_exit, true)
 
+    # Shows up in the logs as tor_log=true
+    Logger.metadata(tor_log: true)
+
     port = Port.open({:spawn_executable, System.find_executable("tor")},
                      [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
                      args: ["__OwningControllerProcess",
