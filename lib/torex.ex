@@ -270,6 +270,21 @@ defmodule Torex do
     end
   end
 
+  @doc """
+  Unlike get_conf(), this message is used for data that are not stored in the
+  Tor configuration file, and that may be longer than a single line.
+  """
+  @spec get_info([atom() | String.t()]) :: {:ok, map()} | {:error, any()}
+  def get_info(keys) do
+    lines = Socket.send_and_recv("GETINFO #{format_kv(keys)}")
+
+    if success?(lines) do
+      {:ok, unformat_kv(lines, "250")}
+    else
+      {:error, status(lines)}
+    end
+  end
+
   # Produces a map from a list of strings with any of the following formats:
   #
   #  ["250-k1=v1",
@@ -290,52 +305,99 @@ defmodule Torex do
   #    k6: nil
   #  }
   #
+  # This function is far too complex, please help :'(
+  #
   @doc false
-  def unformat_kv(lines, prefix \\ nil) do
-    Enum.reduce(lines, %{}, fn line, map ->
-      kv =
-        if prefix do
-          cond do
-            line =~ ~r(^#{prefix} ) ->
-              String.replace(line, ~r(^#{prefix} ), "")
-            line =~ ~r(^#{prefix}-) ->
-              String.replace(line, ~r(^#{prefix}-), "")
-            true->
-              ""
-          end
+  def unformat_kv([], _prefix, _map), do: %{}
+  def unformat_kv(lines, prefix \\ "", map \\ %{}) do
+    lines = strip_ok_status(lines)
+
+    try do
+      Enum.reduce(lines, %{}, fn line, map ->
+        if line =~ ~r(^#{prefix}\+) do
+
+          # Multiline response
+          key =
+            line
+            |> String.replace(~r(^#{prefix}\+), "")
+            |> String.replace_trailing("=", "")
+
+          # We need to break out of this reduce to try again with ramaining lines
+          throw {map, key}
         else
-          line
-        end
-      
-      cond do
-        kv === "" ->
-          map
-        kv =~ ~r(\w+=[\w+, "\w+"]) ->
-          [k, values_string] = String.split(kv, "=")
-
-          values_mapper = fn value ->
-            cond do
-              value =~ ~r(^".*"$) ->
-                # Handles quoted values
-                value
-                |> String.replace_leading(~S("), "")
-                |> String.replace_trailing(~S("), "")
-              true ->
-                value
+          kv =
+            if prefix do
+              cond do
+                line =~ ~r(^#{prefix} ) ->
+                  String.replace(line, ~r(^#{prefix} ), "")
+                line =~ ~r(^#{prefix}-) ->
+                  String.replace(line, ~r(^#{prefix}-), "")
+                true->
+                  ""
+              end
+            else
+              line
             end
+
+          cond do
+            kv === "" ->
+              map
+            kv =~ "=" ->
+              [k, values_string] = String.split(kv, "=")
+
+              values_mapper = fn value ->
+                cond do
+                  value =~ ~r(^".*"$) ->
+                    # Handles quoted values
+                    value
+                    |> String.replace_leading(~S("), "")
+                    |> String.replace_trailing(~S("), "")
+                  true ->
+                    value
+                end
+              end
+
+              values_list =
+                values_string
+                |> String.split(",")
+                |> Enum.map(values_mapper)
+
+              # Update for co-occurences of the same key
+              Map.update(map, k, values_list, &(&1 ++ values_list))
+            true ->
+              Map.put(map, kv, nil)
           end
+        end
+      end)
+    catch
+      {map_so_far, key} ->
+        # Multiline response
+        {value, remaining_lines} = unformat_multiline(lines, key, prefix)
 
-          values_list =
-            values_string
-            |> String.split(",")
-            |> Enum.map(values_mapper)
+        map_so_far = Map.update(map_so_far, key, [value], &(&1 ++ [value]))
 
-          # Update for co-occurences of the same key
-          Map.update(map, k, values_list, &(&1 ++ values_list))
-        true ->
-          Map.put(map, kv, nil)
-      end
-    end)
+        Map.merge(map_so_far, unformat_kv(remaining_lines, prefix), fn _k, v1, v2 ->
+          v1 ++ v2
+        end)
+    end  
+  end
+
+  defp unformat_multiline(lines, key, prefix) do
+    lines_dropped_before_key =
+      Enum.drop_while(lines, fn line ->
+      !(line =~ ~r(^#{prefix}\+#{key}=))
+      end)
+
+    {concated_string, multilines} =
+      Enum.reduce_while(lines_dropped_before_key, {"", []}, fn line, {acc, multiline} ->
+        if line == "." do
+          {:halt, {acc, [line | multiline]}}
+        else
+          {:cont, {acc <> line <> "\n", [line | multiline]}}
+        end
+      end)
+
+      {concated_string, lines_dropped_before_key -- multilines}
   end
 
   def format_kv(keywords) do
@@ -363,6 +425,16 @@ defmodule Torex do
   # ========================================= #
   #             Private Functions             #
   # ========================================= #
+
+  defp strip_ok_status(lines) do
+    [last] = Enum.take(lines, -1)
+
+    if last =~ "250 OK" do
+      Enum.slice(lines, 0..-2)
+    else
+      lines
+    end
+  end
 
   defp authenticate_safecookie(cookie_path) do
     case File.read(cookie_path) do
@@ -417,8 +489,9 @@ defmodule Torex do
     String.pad_leading("#{:erlang.integer_to_list(int, 16)}", min_length, "0")
   end
 
-  defp status(lines) do 
-    @status_codes[get_code(lines)] || Enum.take(lines, -1)
+  defp status(lines) do
+    [last] = Enum.take(lines, -1)
+    @status_codes[get_code(lines)] || last
   end
 
   defp success?(lines) do
