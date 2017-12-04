@@ -126,8 +126,7 @@ defmodule Torex do
   @spec set_conf([{atom() | String.t(), any()} | atom() | String.t()]) ::
                                                         :ok | {:error, atom()}
   def set_conf(keywords) do
-    msg = "SETCONF" <> format_kv(keywords)
-    lines = Socket.send_and_recv(msg)
+    lines = Socket.send_and_recv("SETCONF #{format_kv(keywords)}")
 
     if success?(lines) do
       :ok
@@ -144,8 +143,7 @@ defmodule Torex do
   @spec reset_conf([{atom() | String.t(), any()} | atom() | String.t()]) ::
                                                         :ok | {:error, atom()}
   def reset_conf(keywords) do
-    msg = "RESETCONF " <> format_kv(keywords)
-    lines = Socket.send_and_recv(msg)
+    lines = Socket.send_and_recv("RESETCONF #{format_kv(keywords)}")
 
     if success?(lines) do
       :ok
@@ -164,8 +162,7 @@ defmodule Torex do
   @spec get_conf([atom() | String.t()]) ::
             {:ok, %{required(atom()) => [String.t()]}} | {:error, any()}
   def get_conf(keys) do
-    msg = "GETCONF " <> format_keys(keys)
-    lines = Socket.send_and_recv(msg)
+    lines = Socket.send_and_recv("GETCONF #{format_keys(keys)}")
 
     if success?(lines) do
       {:ok, unformat_kv(lines, "250")}
@@ -184,9 +181,9 @@ defmodule Torex do
   def set_events(event_codes, extended? \\ false) do
     msg =
       if extended? do
-        "SETEVENTS EXTENDED " <> Enum.join(event_codes)
+        "SETEVENTS EXTENDED #{format_kv(event_codes)}"
       else
-        "SETEVENTS " <> Enum.join(event_codes)
+        "SETEVENTS #{format_kv(event_codes)}"
       end
 
       lines = Socket.send_and_recv(msg)
