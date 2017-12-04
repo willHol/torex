@@ -308,14 +308,13 @@ defmodule Torex do
   # This function is far too complex, please help :'(
   #
   @doc false
-  def unformat_kv([], _prefix, _map), do: %{}
-  def unformat_kv(lines, prefix \\ "", map \\ %{}) do
+  def unformat_kv([], _prefix), do: %{}
+  def unformat_kv(lines, prefix \\ "") do
     lines = strip_ok_status(lines)
 
     try do
       Enum.reduce(lines, %{}, fn line, map ->
         if line =~ ~r(^#{prefix}\+) do
-
           # Multiline response
           key =
             line
@@ -326,7 +325,7 @@ defmodule Torex do
           throw {map, key}
         else
           kv =
-            if prefix do
+            if prefix !== "" do
               cond do
                 line =~ ~r(^#{prefix} ) ->
                   String.replace(line, ~r(^#{prefix} ), "")
