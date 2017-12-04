@@ -5,8 +5,7 @@ config :torex,
     ControlPort: 4000,
     SocksPort: 6000
   },
-  password: "password",
-  cookie_path: "/var/lib/tor/control_auth_cookie"
+  password: "password"
 
 config :logger, :console,
   metadata: [:tor_log],

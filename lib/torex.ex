@@ -27,7 +27,8 @@ defmodule Torex do
     "513 syntax error in configuration values." => :syntax_error,
     "553 impossible configuration setting." => :impossible_config,
     "552 Unrecognized event." => :unrecognised_event,
-    "551 Unable to write configuration to disk." => :unable_to_write_config
+    "551 Unable to write configuration to disk." => :unable_to_write_config,
+    "552 Unrecognized signal." => :unrecognised_signal
   }
 
   @spec protocol_info() :: %{status: atom(), auth_methods: [String.t()],
@@ -254,6 +255,45 @@ defmodule Torex do
       else
         {:error, status(lines)}
       end
+  end
+
+  @doc """
+  Sent from the client to the server.
+
+  The meanings of the signals are:
+
+    * `:reload`        - Reload: reload config items
+    * `:shutdown`      - Controlled shutdown: if server is an OP, exit immediately.
+                         If it's an OR, close listeners and exit after
+                         ShutdownWaitLength seconds.
+    * `:dump`          - Dump stats: log information about open connections and
+                         circuits.
+    * `:debug`         - Debug: switch all open logs to loglevel debug.
+    * `:halt`          - Immediate shutdown: clean up and exit now.
+    * `:cleardnscache` - Forget the client-side cached IPs for all hostnames.
+    * `:newnym`        - Switch to clean circuits, so new application requests
+                         don't share any circuits with old ones.  Also clears
+                         the client-side DNS cache.  (Tor MAY rate-limit its
+                         response to this signal.)
+    * `:heartbeat`     - Make Tor dump an unscheduled Heartbeat message to log.
+
+    Note that not all of these signals have POSIX signal equivalents:
+
+    RELOAD: HUP
+    SHUTDOWN: INT
+    HALT: TERM
+    DUMP: USR1
+    DEBUG: USR2
+  """
+  @spec signal(:atom | String.t()) :: :ok | {:error, any()}
+  def signal(type) do
+    lines = Socket.send_and_recv("SIGNAL #{type}")
+
+    if success?(lines) do
+      :ok
+    else
+      {:error, status(lines)}
+    end
   end
 
 
