@@ -28,7 +28,8 @@ defmodule Torex do
     "553 impossible configuration setting." => :impossible_config,
     "552 Unrecognized event." => :unrecognised_event,
     "551 Unable to write configuration to disk." => :unable_to_write_config,
-    "552 Unrecognized signal." => :unrecognised_signal
+    "552 Unrecognized signal." => :unrecognised_signal,
+    "512 syntax error in command argument." => :syntax_error
   }
 
   @spec protocol_info() :: %{status: atom(), auth_methods: [String.t()],
@@ -41,8 +42,8 @@ defmodule Torex do
     end
 
     map = map_from_lines(lines)
-    methods = decompose_kv_info(map["250-AUTH"])["METHODS"]
-    [version] = decompose_kv_info(map["250-VERSION"])["Tor"]
+    methods = unformat_kv(map["250-AUTH"])["METHODS"]
+    [version] = unformat_kv(map["250-VERSION"])["Tor"]
 
     %{
       status: :success,
@@ -74,7 +75,9 @@ defmodule Torex do
         "NULL" in methods ->
           {authenticate_null(), "NULL"}
         true ->
-          raise AuthenticationError, message: "Unrecognised authentication method"
+          raise AuthenticationError, message:
+            "Unsupported authentication method. You may need to modify your"
+            <> " torrc to enable this."
       end
 
       # Default timeout is not long enough
@@ -100,17 +103,21 @@ defmodule Torex do
       Socket.send_and_wait(~s(AUTHCHALLENGE SAFECOOKIE #{dec_to_hex(nonce, 2)}))
     end
 
-    [line] = Socket.recv_all()
-    ["250", "AUTHCHALLENGE" | keys] = String.split(line, " ")
-    map = decompose_kv_info(keys)
+    lines = Socket.recv_all()
 
-    [server_hash] = map["SERVERHASH"]
-    [server_nonce] = map["SERVERNONCE"]
+    if success?(lines) do
+      map = unformat_kv(lines)
 
-    %{
-      server_hash: server_hash,
-      server_nonce: server_nonce
-    }
+      [server_hash] = map["SERVERHASH"]
+      [server_nonce] = map["SERVERNONCE"]
+
+      %{
+        server_hash: server_hash,
+        server_nonce: server_nonce
+      }
+    else
+      raise AuthenticationError, message: "Authentication failed: #{status(lines)}"
+    end
   end
 
   @doc """
@@ -119,19 +126,7 @@ defmodule Torex do
   @spec set_conf([{atom() | String.t(), any()} | atom() | String.t()]) ::
                                                         :ok | {:error, atom()}
   def set_conf(keywords) do
-    mapper = fn val ->
-      case val do
-        {k, v} -> ~s( #{k}="#{v}")
-        val -> ~s( #{val})
-      end
-    end
-
-    kv_string =
-      keywords
-      |> Enum.map(mapper)
-      |> Enum.join()
-
-    msg = "SETCONF" <> kv_string
+    msg = "SETCONF" <> format_kv(keywords)
     lines = Socket.send_and_recv(msg)
 
     if success?(lines) do
@@ -149,19 +144,7 @@ defmodule Torex do
   @spec reset_conf([{atom() | String.t(), any()} | atom() | String.t()]) ::
                                                         :ok | {:error, atom()}
   def reset_conf(keywords) do
-    mapper = fn val ->
-      case val do
-        {k, v} -> ~s( #{k}=#{v})
-        val -> ~s( #{val})
-      end
-    end
-
-    kv_string =
-      keywords
-      |> Enum.map(mapper)
-      |> Enum.join()
-
-    msg = "RESETCONF" <> kv_string
+    msg = "RESETCONF " <> format_kv(keywords)
     lines = Socket.send_and_recv(msg)
 
     if success?(lines) do
@@ -179,34 +162,13 @@ defmodule Torex do
   defaults.
   """
   @spec get_conf([atom() | String.t()]) ::
-            {:ok, %{required(atom()) => String.t()}} | {:error, any()}
-  def get_conf(keywords) do
-    keywords_str =
-      keywords
-      |> Enum.map(&(" #{&1}"))
-      |> Enum.join()
-    
-    msg = "GETCONF" <> keywords_str
+            {:ok, %{required(atom()) => [String.t()]}} | {:error, any()}
+  def get_conf(keys) do
+    msg = "GETCONF " <> format_keys(keys)
     lines = Socket.send_and_recv(msg)
 
     if success?(lines) do
-      result = Enum.reduce(lines, %{}, fn line, map ->
-        kv =
-          case line do
-            "250 " <> kv -> kv
-            "250-" <> kv -> kv
-          end
-        
-        cond do
-          kv =~ ~r(\w+=[\w+,"\w"]) ->
-            [k, v] = String.split(kv, "=")
-            Map.put(map, String.to_atom(k), v)
-          true ->
-            Map.put(map, String.to_atom(kv), :default)
-        end
-      end)
-
-      {:ok, result}
+      {:ok, unformat_kv(lines, "250")}
     else
       {:error, status(lines)}
     end
@@ -294,6 +256,110 @@ defmodule Torex do
     else
       {:error, status(lines)}
     end
+  end
+
+  @doc """
+  The first address in each pair is an "original" address; the second is a
+  "replacement" address.
+  """
+  @spec map_address(keyword()) :: :ok | {:error, any()}
+  def map_address(keywords) do
+    lines = Socket.send_and_recv("MAPADDRESS #{format_kv(keywords)}")
+
+    if success?(lines) do
+      :ok
+    else
+      {:error, status(lines)}
+    end
+  end
+
+  # Produces a map from a list of strings with any of the following formats:
+  #
+  #  ["250-k1=v1",
+  #  "250 k2=v2",
+  #  "250-k3=v3,v4",
+  #  "250 k4=v5,v6",
+  #  "250 k5",
+  #  "250-k6"]
+  #
+  #  Values can be quoted or unquotedThe returned map would have the following structure:
+  #
+  #  %{
+  #    "k1" => [v1],
+  #    k2: [v2],
+  #    k3: [v3, v4],
+  #    k4: [v5, v6],
+  #    k5: nil,
+  #    k6: nil
+  #  }
+  #
+  @doc false
+  def unformat_kv(lines, prefix \\ nil) do
+    Enum.reduce(lines, %{}, fn line, map ->
+      kv =
+        if prefix do
+          cond do
+            line =~ ~r(^#{prefix} ) ->
+              String.replace(line, ~r(^#{prefix} ), "")
+            line =~ ~r(^#{prefix}-) ->
+              String.replace(line, ~r(^#{prefix}-), "")
+            true->
+              ""
+          end
+        else
+          line
+        end
+      
+      cond do
+        kv === "" ->
+          map
+        kv =~ ~r(\w+=[\w+, "\w+"]) ->
+          [k, values_string] = String.split(kv, "=")
+
+          values_mapper = fn value ->
+            cond do
+              value =~ ~r(^".*"$) ->
+                # Handles quoted values
+                value
+                |> String.replace_leading(~S("), "")
+                |> String.replace_trailing(~S("), "")
+              true ->
+                value
+            end
+          end
+
+          values_list =
+            values_string
+            |> String.split(",")
+            |> Enum.map(values_mapper)
+
+          # Update for co-occurences of the same key
+          Map.update(map, k, values_list, &(&1 ++ values_list))
+        true ->
+          Map.put(map, kv, nil)
+      end
+    end)
+  end
+
+  def format_kv(keywords) do
+    mapper = fn kv ->
+      case kv do
+        {k, v} -> if v =~ " ", do: ~s( #{k}="#{v}"), else: ~s( #{k}=#{v})
+        kv -> ~s( #{kv})
+      end
+    end
+
+    keywords
+    |> Enum.map(mapper)
+    |> Enum.join()
+    |> String.slice(1..-1)
+  end
+
+  def format_keys(keys) do
+    keys
+    |> Enum.map(&(" #{&1}"))
+    |> Enum.join()
+    |> String.slice(1..-1)
   end
 
 
@@ -384,13 +450,6 @@ defmodule Torex do
     Enum.reduce(lines, %{}, fn line, map ->
       [tag | info] = String.split(line, " ")
       Map.put(map, tag, info)
-    end)
-  end
-
-  defp decompose_kv_info(info) do
-    Enum.reduce(info,%{}, fn item, map ->
-         [key, values] = String.split(item, "=")
-         Map.put(map, key, String.split(values, ","))
     end)
   end
 end

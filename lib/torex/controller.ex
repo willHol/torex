@@ -6,8 +6,6 @@ defmodule Torex.Controller do
   use GenServer
   require Logger
 
-  alias Torex.Controller.{ProtocolError, AuthenticationError}
-
   def start_link(_) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
@@ -27,7 +25,5 @@ defmodule Torex.Controller do
     end
 
     {:ok, []}
-  rescue
-    e in [AuthenticationError, ProtocolError] -> {:stop, e}
   end
 end
