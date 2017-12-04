@@ -20,12 +20,14 @@ defmodule Torex do
   # A map of reply codes
   @status_codes %{
     "250 OK" => :success,
-    "515 Bad authentication" => :bad_auth,
-    "514 Authentication required" => :auth_required,
-    "552 Unrecognized option" => :unrecognized_opt,
-    "552 unknown configuration keyword" => :unrecognized_keyword,
-    "513 syntax error in configuration values" => :syntax_error,
-    "553 impossible configuration setting" => :impossible_config
+    "515 Bad authentication." => :bad_auth,
+    "514 Authentication required." => :auth_required,
+    "552 Unrecognized option." => :unrecognized_opt,
+    "552 unknown configuration keyword." => :unrecognized_keyword,
+    "513 syntax error in configuration values." => :syntax_error,
+    "553 impossible configuration setting." => :impossible_config,
+    "552 Unrecognized event." => :unrecognised_event,
+    "551 Unable to write configuration to disk." => :unable_to_write_config
   }
 
   @spec protocol_info() :: %{status: atom(), auth_methods: [String.t()],
@@ -62,7 +64,7 @@ defmodule Torex do
 
     {msg, method} =
       cond do
-        "SAFECOOKIE" in methods ->
+        "SAFECOOKIE" in methods and cookie_path != nil ->
           {authenticate_safecookie(cookie_path), "SAFECOOKIE"}
         "HASHEDPASSWORD" in methods and password != nil ->
           {authenticate_hashed_password(password), "HASHEDPASSWORD"}
@@ -208,6 +210,52 @@ defmodule Torex do
       {:error, status(lines)}
     end
   end
+
+  @doc """
+  Requests that the server notify the client of events. Any events *not* in the
+  event_codes list are turned off; thus, sending set_events() with an empty
+  list turns off all event reporting. If the flag string extended? = true,
+  Tor may provide extra information with events for this connection.
+  """
+  @spec set_events([String.t() | atom()], boolean()) :: :ok | {:error, any()}
+  def set_events(event_codes, extended? \\ false) do
+    msg =
+      if extended? do
+        "SETEVENTS EXTENDED " <> Enum.join(event_codes)
+      else
+        "SETEVENTS " <> Enum.join(event_codes)
+      end
+
+      lines = Socket.send_and_recv(msg)
+
+      if success?(lines) do
+        :ok
+      else
+        {:error, status(lines)}
+      end
+  end
+
+  @doc """
+  Instructs the server to write out its config options into its torrc.
+  """
+  @spec save_conf(boolean()) :: :ok | {:error, any()}
+  def save_conf(force? \\ false) do
+    msg =
+      if force? do
+        "SAVECONF FORCE"
+      else
+        "SAVECONF"
+      end
+
+      lines = Socket.send_and_recv(msg)
+
+      if success?(lines) do
+        :ok
+      else
+        {:error, status(lines)}
+      end
+  end
+
 
   # ========================================= #
   #             Private Functions             #
