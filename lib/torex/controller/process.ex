@@ -15,7 +15,20 @@ defmodule Torex.Controller.Process do
     # Shows up in the logs as tor_log=true
     Logger.metadata(tor_log: true)
 
-    port = Port.open({:spawn_executable, System.find_executable("tor")},
+    executable = Application.get_env(:torex, :executable, System.find_executable("tor"))
+
+    case Application.get_env(:torex, :args) do
+      %{ControlSocket: file} when not is_nil(file) ->
+        # File.write() creates a file if it does not exist
+        if not File.exists?, do: File.write(file, <<>>)
+    end
+
+    unless executable do
+      raise File.Error, message: "Unable to locate tor executable, please"
+                              <> "ensure that Tor is in your PATH."
+    end
+
+    port = Port.open({:spawn_executable, executable},
                      [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
                      args: ["__OwningControllerProcess",
                             :erlang.list_to_binary(:os.getpid())] ++ flatten_args_map(args)])

@@ -1,11 +1,3 @@
-defmodule Torex.Controller.ProtocolError do
-  defexception [:message]
-end
-
-defmodule Torex.Controller.AuthenticationError do
-  defexception [:message]
-end
-
 defmodule Torex do
   @moduledoc """
   The main context. Contains all functions for controlling a tor node.

@@ -1,10 +1,23 @@
+defmodule Torex.Controller.ProtocolError do
+  defexception [:message]
+end
+
+defmodule Torex.Controller.AuthenticationError do
+  defexception [:message]
+end
+
+defmodule Torex.Controller.ConfigurationError do
+  defexception [:message]
+end
+
 defmodule Torex.Controller.Socket do
   @moduledoc """
   Represents a controlling link to an active Tor process
   """
   use GenServer
-
   require Logger
+
+  alias Torex.Controller.ConfigurationError
 
   def start_link(_) do
     # Queue stores received messages from the socket
@@ -19,9 +32,20 @@ defmodule Torex.Controller.Socket do
     # Shows up in the logs as tor_log=false
     Logger.metadata(tor_log: false)
 
-    %{ControlPort: port} = Application.get_env(:torex, :args)
+    {address, port} =
+      case Application.get_env(:torex, :args) do
+        %{ControlPort: port} when not is_nil(port) ->
+          {'localhost', port}
+        %{ControlSocket: file} when not is_nil(file) ->
+          # Set up a Unix Domain Socket
+          {{:local, file}, 0}
+        _else ->
+          raise ConfigurationError, message: "Neither ControlPort nor"
+                                          <> "ControlSocket is specified in the"
+                                          <> "application configuration."
+      end
 
-    {:ok, socket} = :gen_tcp.connect('localhost', port,
+    {:ok, socket} = :gen_tcp.connect(address, port,
                       [:binary, packet: :line, active: true, keepalive: true])
 
     :gen_tcp.controlling_process(socket, self())

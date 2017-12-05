@@ -2,10 +2,11 @@ use Mix.Config
 
 config :torex,
   args: %{
-    ControlPort: 2000,
+    ControlSocket: Path.expand("~/tmp/socket"),
     SocksPort: 6000
   },
-  password: "password"
+  password: "password",
+  executable: System.find_executable("tor")
 
 config :logger, :console,
   metadata: [:tor_log],
