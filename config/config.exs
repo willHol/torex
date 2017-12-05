@@ -6,7 +6,7 @@ config :torex,
     SocksPort: 6000
   },
   password: "password",
-  executable: System.find_executable("tor")
+  executable: System.find_executable("firejail") <> " " <> System.find_executable("tor")
 
 config :logger, :console,
   metadata: [:tor_log],

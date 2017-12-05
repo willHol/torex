@@ -20,7 +20,7 @@ defmodule Torex.Controller.Process do
     case Application.get_env(:torex, :args) do
       %{ControlSocket: file} when not is_nil(file) ->
         # File.write() creates a file if it does not exist
-        if not File.exists?, do: File.write(file, <<>>)
+        if not File.exists?(file), do: File.write(file, <<>>)
     end
 
     unless executable do
