@@ -16,7 +16,7 @@ defmodule Torex.Controller.Supervisor do
       Socket
     ]
 
-    Supervisor.init(children, strategy: :one_for_one, shutdown: 1500,
+    Supervisor.init(children, strategy: :one_for_all, shutdown: 1500,
                                               max_restarts: 3, max_seconds: 90)
   end
 
