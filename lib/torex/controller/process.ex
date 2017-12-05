@@ -28,10 +28,19 @@ defmodule Torex.Controller.Process do
                               <> "ensure that Tor is in your PATH."
     end
 
-    port = Port.open({:spawn_executable, executable},
-                     [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
-                     args: ["__OwningControllerProcess",
-                            :erlang.list_to_binary(:os.getpid())] ++ flatten_args_map(args)])
+    tor_args = flatten_args_map(args)
+
+    port =
+      if parent = Application.get_env(:torex, :parent_executable) do
+        Port.open({:spawn_executable, parent},
+                  [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
+                   args: [executable | tor_args]])
+      else
+        Port.open({:spawn_executable, executable},
+                  [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
+                   args: ["__OwningControllerProcess",
+                          :erlang.list_to_binary(:os.getpid())] ++ flatten_args_map(args)])
+      end
 
     # Links the port to the current process
     true = Port.connect(port, self())
@@ -133,7 +142,7 @@ defmodule Torex.Controller.Process do
           true ->
             handle_bootstrap(port)
         end
-      {^port, {:exit_status, code}} ->
+      {^port, {:exit_status, _code}} ->
         :error
     end
   end
