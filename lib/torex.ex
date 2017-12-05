@@ -308,8 +308,9 @@ defmodule Torex do
   # This function is far too complex, please help :'(
   #
   @doc false
+  def unformat_kv(lines, _prefix \\ "")
   def unformat_kv([], _prefix), do: %{}
-  def unformat_kv(lines, prefix \\ "") do
+  def unformat_kv(lines, prefix) do
     lines = strip_ok_status(lines)
 
     try do
@@ -362,7 +363,7 @@ defmodule Torex do
                 |> Enum.map(values_mapper)
 
               # Update for co-occurences of the same key
-              Map.update(map, k, values_list, &(&1 ++ values_list))
+              map = Map.update(map, k, values_list, &(&1 ++ values_list))
             true ->
               Map.put(map, kv, nil)
           end
@@ -384,7 +385,7 @@ defmodule Torex do
   defp unformat_multiline(lines, key, prefix) do
     lines_dropped_before_key =
       Enum.drop_while(lines, fn line ->
-      !(line =~ ~r(^#{prefix}\+#{key}=))
+        !(line =~ ~r(^#{prefix}\+#{key}=))
       end)
 
     {concated_string, multilines} =
@@ -402,8 +403,18 @@ defmodule Torex do
   def format_kv(keywords) do
     mapper = fn kv ->
       case kv do
-        {k, v} -> if v =~ " ", do: ~s( #{k}="#{v}"), else: ~s( #{k}=#{v})
-        kv -> ~s( #{kv})
+        {k, nil} ->
+          ~s( #{k})
+        {k, v} when is_list(v) ->
+          ~s( #{k}="#{Enum.join(v, ",")}")
+        {k, v} when is_binary(v) ->
+          if v =~ " " do
+            ~s( #{k}="#{v}")
+          else
+            ~s( #{k}=#{v})
+          end
+        kv ->
+          ~s( #{kv})
       end
     end
 
@@ -420,10 +431,131 @@ defmodule Torex do
     |> String.slice(1..-1)
   end
 
+  # ========================================= #
+  #           Non-protocol Functions          #
+  # ========================================= #
+
+  def get_hidden_service_conf() do
+    case get_conf(["HiddenServiceOptions"]) do
+      {:ok, %{"HiddenServiceOptions" => nil}} ->
+        {:error, :not_configured}
+      {:ok, map} ->
+        [target_port, host, port] = unformat_virt_port(unwrap_list(map["HiddenServicePort"]))
+
+        {:ok, %{
+          directory: unwrap_list(map["HiddenServiceDir"]),
+          port: port,
+          target_port: target_port,
+          host: host,
+          version: unwrap_list(map["HiddenServiceVersion"]),
+          authorized_clients: map["HiddenServiceAuthorizeClient"]
+        }}
+      other -> other
+    end
+  end
+
+  def set_hidden_service_conf(conf) do
+    # Using [] as it returns nil - . notation causes error
+    transformed_map =
+      %{
+        "HiddenServiceDir" => conf[:directory],
+        "HiddenServicePort" => format_virt_port(conf),
+        "HiddenServiceVersion" => conf[:version],
+        "HiddenserviceAuthorizeClient" => conf[:authorized_clients]
+      }
+
+    set_conf(transformed_map)   
+  end
+
+  def create_hidden_service(directory, port, target_port, host \\ "127.0.0.1", client_names \\ []) do
+    args_config = %{
+      directory: directory,
+      port: port,
+      target_port: target_port,
+      host: host,
+      authorized_clients: client_names
+    }
+
+    with {:ok, current_conf} <- get_hidden_service_conf(),
+         new_conf <- Map.merge(current_conf, args_config),
+         :ok <- set_hidden_service_conf(new_conf)
+    do
+      hostname =
+        case read_hostname("#{directory}/hostname") do
+          {:ok, hostname} -> hostname
+          {:error, _reason} -> nil
+        end
+
+      host_for_clients = 
+        if client_names !== [] do
+          hostnames_for_clients(hostname)
+        else
+          nil    
+        end
+      
+
+      %{
+        directory: new_conf[:directory],
+        hostname: hostname,
+        host_for_clients: host_for_clients,
+        config: new_conf
+      }
+    end
+  end
 
   # ========================================= #
   #             Private Functions             #
   # ========================================= #
+
+  def hostnames_for_clients(hostnames) do
+    decompose_line = fn line ->
+      case String.split(line, " ", trim: true) do
+        [hostname, _hash, "#", "client:", client_name] ->
+          {client_name, hostname}
+      end
+    end
+
+    hostnames
+    |> String.split("\n", trim: true)
+    |> Enum.map(decompose_line)
+    |> Enum.into(%{})
+  rescue
+    _ -> %{}
+  end
+
+  defp read_hostname(_path, reason \\ :unknown, tries \\ 3)
+  defp read_hostname(_path, reason, 0), do: {:error, reason}
+  defp read_hostname(path, _reason, tries) do
+    case File.read(path) do
+      {:ok, bin} ->
+        {:ok, String.trim(bin)}
+      {:error, reason} ->
+        :ok = :timer.sleep(75)
+        read_hostname(path, reason, tries - 1)
+    end
+  end
+
+  defp unformat_virt_port(virt_port) do
+    case String.split(virt_port, ~r([\s, :])) do
+      [target_port, host, port] -> [target_port, host, port]
+      _ -> [nil, nil, nil]
+    end
+  end
+
+  defp format_virt_port(conf) do
+    target_port = conf[:target_port] || ""
+    host = conf[:host] || ""
+    port = conf[:port] || ""
+
+    "#{target_port} #{host}:#{port}"
+  end
+
+  defp unwrap_list([single_item]) do
+    single_item
+  end
+  defp unwrap_list(multi_item) do
+    multi_item
+  end
 
   defp strip_ok_status(lines) do
     [last] = Enum.take(lines, -1)

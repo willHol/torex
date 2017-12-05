@@ -2,7 +2,7 @@ use Mix.Config
 
 config :torex,
   args: %{
-    ControlPort: 4000,
+    ControlPort: 2000,
     SocksPort: 6000
   },
   password: "password"
