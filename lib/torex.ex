@@ -438,7 +438,7 @@ defmodule Torex do
   def get_hidden_service_conf() do
     case get_conf(["HiddenServiceOptions"]) do
       {:ok, %{"HiddenServiceOptions" => nil}} ->
-        {:error, :not_configured}
+        {:ok, %{}}
       {:ok, map} ->
         [target_port, host, port] = unformat_virt_port(unwrap_list(map["HiddenServicePort"]))
 
