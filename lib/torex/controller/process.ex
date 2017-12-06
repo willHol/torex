@@ -21,6 +21,8 @@ defmodule Torex.Controller.Process do
     case Application.get_env(:torex, :args) do
       %{ControlSocket: path} when not is_nil(path) ->
         :ok = create_socket_file(path)
+      _ ->
+        :ok
     end
 
     unless executable do
@@ -60,7 +62,7 @@ defmodule Torex.Controller.Process do
     Logger.error fn ->
       "Tor exited with status: #{code}"
     end
-    {:stop, :tor_exit, port}
+    {:stop, :stop, port}
   end
 
   # Trapped exit handler
@@ -69,19 +71,28 @@ defmodule Torex.Controller.Process do
   end
 
   def terminate(_reason, port) do
+    Logger.error fn ->
+      "Process closed: #{inspect port}"
+    end
+
+    case Application.get_env(:torex, :args) do
+      %{ControlSocket: path} when not is_nil(path) ->
+        destroy_socket_file(path)
+    end
+
     case Port.info(port) do
       nil -> true
-      info -> kill_port(port, info)
+      info -> kill_port(info)
     end
-  end
-
-  defp kill_port(port, info) do
-    os_pid = Keyword.get(info, :os_pid)
 
     Port.close(port)
+
+    {:stop, :closed}
+  end
+
+  defp kill_port(info) do
+    os_pid = Keyword.get(info, :os_pid)
     :os.cmd('kill #{os_pid}')
-    
-    :ok
   end
 
   defp flatten_args_map(%{} = map) do
@@ -157,5 +168,9 @@ defmodule Torex.Controller.Process do
     else
       :ok
     end
+  end
+
+  defp destroy_socket_file(path) do
+    File.rm(path)
   end
 end

@@ -3,11 +3,11 @@ use Mix.Config
 config :torex,
   args: %{
     ControlSocket: Path.expand("~/tor_tmp/tor.sock"),
-    SocksPort: 2000
+    SocksPort: 5556,
+    DataDirectory: Path.expand("~/.tor")
   },
   password: "password",
-  executable: System.find_executable("tor"),
-  parent_executable: System.find_executable("firejail")
+  executable: System.find_executable("tor")
 
 config :logger, :console,
   metadata: [:tor_log],
