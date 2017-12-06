@@ -4,7 +4,7 @@ defmodule Torex.Controller.Process do
   require Logger
 
   @logger_regex ~r(\w{3} \w{2} \w{2}:\w{2}:\w{2}.\w{3} \[\w+\] )
-  @permissions 0o600
+  @permissions 0o700
 
   def start_link(%{} = args) do
     GenServer.start_link(__MODULE__, args, name: __MODULE__)
@@ -38,8 +38,7 @@ defmodule Torex.Controller.Process do
       else
         Port.open({:spawn_executable, executable},
                   [:binary, :exit_status, :hide, :use_stdio, :stderr_to_stdout,
-                   args: ["__OwningControllerProcess",
-                          :erlang.list_to_binary(:os.getpid())] ++ flatten_args_map(args)])
+                   args: tor_args])
       end
 
     # Links the port to the current process
@@ -148,11 +147,15 @@ defmodule Torex.Controller.Process do
   end
 
   defp create_socket_file(path) do
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, <<>>),
-         :ok <- File.chmod(path, @permissions)
-         do
-           :ok
-         end
+    if not File.exists?(path) do
+      with :ok <- File.mkdir_p(Path.dirname(path)),
+           :ok <- File.write(path, <<>>),
+           :ok <- File.chmod(Path.dirname(path), @permissions)
+           do
+             :ok
+           end
+    else
+      :ok
+    end
   end
 end

@@ -34,11 +34,11 @@ defmodule Torex.Controller.Socket do
 
     {address, port} =
       case Application.get_env(:torex, :args) do
-        %{ControlPort: port} when not is_nil(port) ->
-          {'localhost', port}
         %{ControlSocket: file} when not is_nil(file) ->
           # Set up a Unix Domain Socket
           {{:local, file}, 0}
+        %{ControlPort: port} when not is_nil(port) ->
+          {'127.0.0.1', port}
         _else ->
           raise ConfigurationError, message: "Neither ControlPort nor"
                                           <> "ControlSocket is specified in the"

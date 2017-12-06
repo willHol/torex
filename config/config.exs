@@ -2,8 +2,8 @@ use Mix.Config
 
 config :torex,
   args: %{
-    ControlSocket: Path.expand("~/tmp/socket.sock"),
-    SocksPort: 6000
+    ControlSocket: Path.expand("~/tor_tmp/tor.sock"),
+    SocksPort: 2000
   },
   password: "password",
   executable: System.find_executable("tor"),
