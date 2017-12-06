@@ -25,10 +25,6 @@ defmodule Torex.Controller do
   end
 
   defp transform_args(args) do
-    args
-    |> Enum.map(fn {k, v} ->
-         {"--" <> String.downcase(to_string(k)), String.downcase(to_string(v))}
-       end)
-    |> Enum.into(%{})
+    OptionParser.to_argv(args)
   end
 end

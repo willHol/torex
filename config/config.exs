@@ -9,7 +9,8 @@ config :torex,
     CookieAuthFile: "/var/lib/tor/control_auth_cookie"
   },
   password: "password",
-  executable: System.find_executable("tor")
+  executable: System.find_executable("tor"),
+  torrc: "/etc/tor/torrc"
 
 config :logger, :console,
   metadata: [:tor_log],

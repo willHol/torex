@@ -6,11 +6,11 @@ defmodule Torex.Controller.Process do
   @logger_regex ~r(\w{3} \w{2} \w{2}:\w{2}:\w{2}.\w{3} \[\w+\] )
   @permissions 0o700
 
-  def start_link(%{} = args) do
-    GenServer.start_link(__MODULE__, args, name: __MODULE__)
+  def start_link(tor_args) do
+    GenServer.start_link(__MODULE__, tor_args, name: __MODULE__)
   end
 
-  def init(args) do
+  def init(tor_args) do
     Process.flag(:trap_exit, true)
 
     # Shows up in the logs as tor_log=false
@@ -29,8 +29,6 @@ defmodule Torex.Controller.Process do
       raise File.Error, message: "Unable to locate tor executable, please"
                               <> "ensure that Tor is in your PATH."
     end
-
-    tor_args = flatten_args_map(args)
 
     port =
       if parent = Application.get_env(:torex, :parent_executable) do
@@ -93,10 +91,6 @@ defmodule Torex.Controller.Process do
   defp kill_port(info) do
     os_pid = Keyword.get(info, :os_pid)
     :os.cmd('kill #{os_pid}')
-  end
-
-  defp flatten_args_map(%{} = map) do
-    Enum.flat_map(map, fn {k, v} -> [k, v] end)
   end
 
   defp translate_logs(lines) do
