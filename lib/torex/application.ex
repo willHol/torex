@@ -3,6 +3,8 @@ defmodule Torex.Application do
 
   use Application
 
+  # TODO merge torrc options into application config
+
   def start(_type, _args) do
     children = [
       Torex.Controller,

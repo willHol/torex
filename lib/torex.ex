@@ -54,7 +54,7 @@ defmodule Torex do
   def authenticate() do
     %{auth_methods: methods} = protocol_info()
     password = Application.get_env(:torex, :password)
-    cookie_path = Application.get_env(:torex, :cookie_path)
+    %{CookieAuthFile: cookie_path} = Application.get_env(:torex, :args)
 
     {msg, method} =
       cond do
@@ -98,10 +98,12 @@ defmodule Torex do
     lines = Socket.recv_all()
 
     if success?(lines) do
-      map = unformat_kv(lines)
+      [line] = lines
 
-      [server_hash] = map["SERVERHASH"]
-      [server_nonce] = map["SERVERNONCE"]
+      ["250", "AUTHCHALLENGE", hash_kv, nonce_kv] = String.split(line, " ", trim: true)
+
+      ["SERVERHASH", server_hash] = String.split(hash_kv, "=", trim: true)
+      ["SERVERNONCE", server_nonce] = String.split(nonce_kv, "=", trim: true)
 
       %{
         server_hash: server_hash,
@@ -110,6 +112,9 @@ defmodule Torex do
     else
       raise AuthenticationError, message: "Authentication failed: #{status(lines)}"
     end
+  rescue
+    e in MatchError ->
+      raise AuthenticationError, message: "Authentication failed: server gave malformed response"
   end
 
   @doc """

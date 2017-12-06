@@ -13,8 +13,8 @@ defmodule Torex.Controller.Process do
   def init(args) do
     Process.flag(:trap_exit, true)
 
-    # Shows up in the logs as tor_log=true
-    Logger.metadata(tor_log: true)
+    # Shows up in the logs as tor_log=false
+    Logger.metadata(tor_log: false)
 
     executable = Application.get_env(:torex, :executable, System.find_executable("tor"))
 
@@ -111,6 +111,8 @@ defmodule Torex.Controller.Process do
       |> String.replace(@logger_regex, "")
       |> String.replace_trailing("\n", "")
 
+    Logger.metadata(tor_log: true)
+
     cond do
       line =~ "[debug]" ->
         Logger.debug fn  ->
@@ -135,6 +137,8 @@ defmodule Torex.Controller.Process do
       true ->
         nil
     end
+
+    Logger.metadata(tor_log: false)
   end
 
   defp handle_bootstrap(port) do
