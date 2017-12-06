@@ -4,6 +4,7 @@ defmodule Torex.Controller.Process do
   require Logger
 
   @logger_regex ~r(\w{3} \w{2} \w{2}:\w{2}:\w{2}.\w{3} \[\w+\] )
+  @permissions 0o600
 
   def start_link(%{} = args) do
     GenServer.start_link(__MODULE__, args, name: __MODULE__)
@@ -18,9 +19,8 @@ defmodule Torex.Controller.Process do
     executable = Application.get_env(:torex, :executable, System.find_executable("tor"))
 
     case Application.get_env(:torex, :args) do
-      %{ControlSocket: file} when not is_nil(file) ->
-        # File.write() creates a file if it does not exist
-        if not File.exists?(file), do: File.write(file, <<>>)
+      %{ControlSocket: path} when not is_nil(path) ->
+        :ok = create_socket_file(path)
     end
 
     unless executable do
@@ -145,5 +145,14 @@ defmodule Torex.Controller.Process do
       {^port, {:exit_status, _code}} ->
         :error
     end
+  end
+
+  defp create_socket_file(path) do
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, <<>>),
+         :ok <- File.chmod(path, @permissions)
+         do
+           :ok
+         end
   end
 end

@@ -2,7 +2,7 @@ use Mix.Config
 
 config :torex,
   args: %{
-    ControlSocket: Path.expand("~/tmp/socket"),
+    ControlSocket: Path.expand("~/tmp/socket.sock"),
     SocksPort: 6000
   },
   password: "password",
