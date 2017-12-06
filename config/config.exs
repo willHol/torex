@@ -2,11 +2,11 @@ use Mix.Config
 
 config :torex,
   args: %{
-    ControlSocket: Path.expand("~/tor_tmp/tor.sock"),
-    SocksPort: 9999,
+    ControlSocket: Path.expand("~/tor/control.sock"),
+    SocksPort: "unix:#{Path.expand("~/tor/socks.sock")}",
     DataDirectory: Path.expand("~/.tor"),
     CookieAuthentication: 1,
-    CookieAuthFile: "/var/lib/tor/control_auth_cookie"
+    CookieAuthFile: Path.expand("~/tor/cookie_auth_file")
   },
   password: "password",
   executable: System.find_executable("tor"),
